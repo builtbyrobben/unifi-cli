@@ -11,34 +11,43 @@ import (
 	"github.com/99designs/keyring"
 	"golang.org/x/term"
 
-	"github.com/builtbyrobben/cli-template/internal/config"
+	"github.com/builtbyrobben/unifi-cli/internal/config"
 )
 
+// Store provides access to stored credentials.
 type Store interface {
-	GetAPIKey() (string, error)
-	SetAPIKey(key string) error
-	DeleteAPIKey() error
-	HasKey() (bool, error)
+	Get(key string) (string, error)
+	Set(key, value string) error
+	Delete(key string) error
+	Has(key string) (bool, error)
 }
 
+// KeyringStore stores credentials in the OS keyring.
 type KeyringStore struct {
 	ring keyring.Keyring
 }
 
 const (
-	apiKeyKey              = "api_key"
-	keyringPasswordEnv     = "PLACEHOLDER_CLI_KEYRING_PASS"
-	keyringBackendEnv      = "PLACEHOLDER_CLI_KEYRING_BACKEND"
-	keyringOpenTimeout     = 5 * time.Second
+	// Credential keys stored in the keyring.
+	KeyHost     = "host"
+	KeyUsername = "username"
+	KeyPassword = "password"
+	KeySite     = "site"
+
+	keyringPasswordEnv = "UNIFI_CLI_KEYRING_PASS" //nolint:gosec // env var name, not a credential
+	keyringBackendEnv  = "UNIFI_CLI_KEYRING_BACKEND"
+	keyringOpenTimeout = 5 * time.Second
 )
 
 var (
-	errMissingAPIKey      = errors.New("missing API key")
-	errNoTTY              = errors.New("no TTY available for keyring file backend password prompt")
+	errMissingKey            = errors.New("missing key")
+	errMissingValue          = errors.New("missing value")
+	errNoTTY                 = errors.New("no TTY available for keyring file backend password prompt")
 	errInvalidKeyringBackend = errors.New("invalid keyring backend")
-	errKeyringTimeout     = errors.New("keyring connection timed out")
+	errKeyringTimeout        = errors.New("keyring connection timed out")
 )
 
+// KeyringBackendInfo describes the resolved keyring backend.
 type KeyringBackendInfo struct {
 	Value  string
 	Source string
@@ -46,17 +55,16 @@ type KeyringBackendInfo struct {
 
 const (
 	keyringBackendSourceEnv     = "env"
-	keyringBackendSourceConfig  = "config"
 	keyringBackendSourceDefault = "default"
 	keyringBackendAuto          = "auto"
 )
 
+// ResolveKeyringBackendInfo determines which keyring backend to use.
 func ResolveKeyringBackendInfo() (KeyringBackendInfo, error) {
 	if v := normalizeKeyringBackend(os.Getenv(keyringBackendEnv)); v != "" {
 		return KeyringBackendInfo{Value: v, Source: keyringBackendSourceEnv}, nil
 	}
 
-	// Could read from config file here if needed
 	return KeyringBackendInfo{Value: keyringBackendAuto, Source: keyringBackendSourceDefault}, nil
 }
 
@@ -120,12 +128,13 @@ func openKeyring() (keyring.Keyring, error) {
 	}
 
 	dbusAddr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+
 	if shouldForceFileBackend(runtime.GOOS, backendInfo, dbusAddr) {
 		backends = []keyring.BackendType{keyring.FileBackend}
 	}
 
 	cfg := keyring.Config{
-		ServiceName:             config.AppName,
+		ServiceName:              config.AppName,
 		KeychainTrustApplication: false,
 		AllowedBackends:          backends,
 		FileDir:                  keyringDir,
@@ -166,11 +175,12 @@ func openKeyringWithTimeout(cfg keyring.Config, timeout time.Duration) (keyring.
 		return res.ring, nil
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("%w after %v (D-Bus SecretService may be unresponsive); "+
-			"set PLACEHOLDER_CLI_KEYRING_BACKEND=file and PLACEHOLDER_CLI_KEYRING_PASS=<password> to use encrypted file storage instead",
+			"set UNIFI_CLI_KEYRING_BACKEND=file and UNIFI_CLI_KEYRING_PASS=<password> to use encrypted file storage instead",
 			errKeyringTimeout, timeout)
 	}
 }
 
+// OpenDefault opens the default keyring-backed credential store.
 func OpenDefault() (Store, error) {
 	ring, err := openKeyring()
 	if err != nil {
@@ -180,88 +190,70 @@ func OpenDefault() (Store, error) {
 	return &KeyringStore{ring: ring}, nil
 }
 
-func (s *KeyringStore) GetAPIKey() (string, error) {
-	item, err := s.ring.Get(apiKeyKey)
+// Get retrieves a credential by key.
+func (s *KeyringStore) Get(key string) (string, error) {
+	key = strings.TrimSpace(key)
+
+	if key == "" {
+		return "", errMissingKey
+	}
+
+	item, err := s.ring.Get(key)
 	if err != nil {
-		return "", fmt.Errorf("read API key: %w", err)
+		return "", fmt.Errorf("read %s: %w", key, err)
 	}
 
 	return string(item.Data), nil
 }
 
-func (s *KeyringStore) SetAPIKey(key string) error {
+// Set stores a credential by key.
+func (s *KeyringStore) Set(key, value string) error {
 	key = strings.TrimSpace(key)
+
 	if key == "" {
-		return errMissingAPIKey
+		return errMissingKey
+	}
+
+	value = strings.TrimSpace(value)
+
+	if value == "" {
+		return errMissingValue
 	}
 
 	if err := s.ring.Set(keyring.Item{
-		Key:  apiKeyKey,
-		Data: []byte(key),
+		Key:  key,
+		Data: []byte(value),
 	}); err != nil {
-		return fmt.Errorf("store API key: %w", err)
+		return fmt.Errorf("store %s: %w", key, err)
 	}
 
 	return nil
 }
 
-func (s *KeyringStore) DeleteAPIKey() error {
-	if err := s.ring.Remove(apiKeyKey); err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
-		return fmt.Errorf("delete API key: %w", err)
+// Delete removes a credential by key.
+func (s *KeyringStore) Delete(key string) error {
+	if err := s.ring.Remove(key); err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
+		return fmt.Errorf("delete %s: %w", key, err)
 	}
 
 	return nil
 }
 
-func (s *KeyringStore) HasKey() (bool, error) {
-	_, err := s.ring.Get(apiKeyKey)
+// Has checks if a credential exists.
+func (s *KeyringStore) Has(key string) (bool, error) {
+	_, err := s.ring.Get(key)
 	if err != nil {
 		if errors.Is(err, keyring.ErrKeyNotFound) {
 			return false, nil
 		}
-		return false, err
+
+		return false, fmt.Errorf("check %s: %w", key, err)
 	}
+
 	return true, nil
 }
 
-// GetSecret retrieves a generic secret by key.
-func GetSecret(key string) ([]byte, error) {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return nil, errors.New("missing secret key")
-	}
-
-	ring, err := openKeyring()
-	if err != nil {
-		return nil, err
-	}
-
-	item, err := ring.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("read secret: %w", err)
-	}
-
-	return item.Data, nil
-}
-
-// SetSecret stores a generic secret by key.
-func SetSecret(key string, value []byte) error {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return errors.New("missing secret key")
-	}
-
-	ring, err := openKeyring()
-	if err != nil {
-		return err
-	}
-
-	if err := ring.Set(keyring.Item{
-		Key:  key,
-		Data: value,
-	}); err != nil {
-		return fmt.Errorf("store secret: %w", err)
-	}
-
-	return nil
+// AllCredentialKeys returns all credential key names used by UniFi CLI.
+func AllCredentialKeys() []string {
+	return []string{KeyHost, KeyUsername, KeyPassword, KeySite}
 }
