@@ -57,3 +57,5 @@ brews:
     homepage: "https://github.com/builtbyrobben/unifi-cli"
     description: "UniFi network controller CLI"
     license: "MIT"
+    test: |
+      system "#{bin}/unifi-cli", "--version"
