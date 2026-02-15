@@ -1,8 +1,6 @@
-# placeholder-cli
+# unifi-cli
 
-<!-- Replace with your CLI description -->
-
-A CLI tool for [SERVICE_NAME] built with Go.
+Command-line interface for the UniFi Site Manager cloud API. Manage hosts, sites, devices, and ISP metrics from your terminal.
 
 ## Installation
 
@@ -10,83 +8,159 @@ A CLI tool for [SERVICE_NAME] built with Go.
 
 ```bash
 brew tap builtbyrobben/tap
-brew install placeholder-cli
+brew install unifi-cli
 ```
 
 ### Download Binary
 
-Download the latest release from [GitHub Releases](https://github.com/builtbyrobben/placeholder-cli/releases).
+Download the latest release from [GitHub Releases](https://github.com/builtbyrobben/unifi-cli/releases).
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/builtbyrobben/placeholder-cli.git
-cd placeholder-cli
+git clone https://github.com/builtbyrobben/unifi-cli.git
+cd unifi-cli
 make build
 ```
 
-## Authentication
+## Configuration
 
-### Set API Key
+unifi-cli authenticates via a UniFi Site Manager API key. You can provide it in two ways:
+
+**Environment variable (recommended for CI/scripts):**
 
 ```bash
-# Interactive (secure, recommended)
-placeholder-cli auth set-key --stdin
-
-# From environment variable
-echo $API_KEY | placeholder-cli auth set-key --stdin
-
-# From argument (discouraged - exposes in shell history)
-placeholder-cli auth set-key YOUR_API_KEY
+export UNIFI_API_KEY="your-api-key"
 ```
 
-### Check Status
+**Keyring storage (recommended for interactive use):**
 
 ```bash
-placeholder-cli auth status
-```
+# Interactive prompt (secure)
+unifi-cli auth set-key --stdin
 
-### Remove Credentials
-
-```bash
-placeholder-cli auth remove
+# Pipe from environment
+echo "$UNIFI_API_KEY" | unifi-cli auth set-key --stdin
 ```
 
 ### Environment Variables
 
-- `PLACEHOLDER_CLI_API_KEY` - Override stored credentials
-- `PLACEHOLDER_CLI_KEYRING_BACKEND` - Force keyring backend (auto/keychain/file)
-- `PLACEHOLDER_CLI_KEYRING_PASS` - Password for file backend (headless systems)
+| Variable | Description |
+|----------|-------------|
+| `UNIFI_API_KEY` | API key (overrides keyring) |
+| `UNIFI_CLI_COLOR` | Color output: `auto`, `always`, `never` |
+| `UNIFI_CLI_OUTPUT` | Default output mode: `json`, `plain` |
 
-## Usage
+## Global Flags
 
-<!-- Add your CLI usage examples here -->
+| Flag | Description |
+|------|-------------|
+| `--json` | Output JSON to stdout (best for scripting) |
+| `--plain` | Output stable, parseable text (TSV; no colors) |
+| `--color` | Color output: `auto`, `always`, `never` |
+| `--verbose` | Enable verbose logging |
+| `--force` | Skip confirmations for destructive commands |
+| `--no-input` | Never prompt; fail instead (useful for CI) |
+
+## Commands
+
+### auth
+
+Manage authentication credentials.
 
 ```bash
-placeholder-cli --help
+# Store API key in system keyring (interactive prompt)
+unifi-cli auth set-key --stdin
+
+# Check authentication status
+unifi-cli auth status
+
+# Remove stored credentials
+unifi-cli auth remove
 ```
 
-## Development
+### hosts
 
-### Prerequisites
-
-- Go 1.22+
-- Make
-
-### Commands
+Manage UniFi console hosts.
 
 ```bash
-make build        # Build binary
-make test         # Run tests
-make lint         # Run linter
-make ci           # Run full CI suite
-make tools        # Install dev tools
+# List all hosts
+unifi-cli hosts list
+
+# List with pagination
+unifi-cli hosts list --page-size 10
+
+# Get a specific host by ID
+unifi-cli hosts get abc123
+
+# Get host details as JSON
+unifi-cli hosts get abc123 --json
+```
+
+### sites
+
+Manage UniFi sites.
+
+```bash
+# List all sites
+unifi-cli sites list
+
+# List with pagination
+unifi-cli sites list --page-size 10
+
+# Output as JSON
+unifi-cli sites list --json
+```
+
+### devices
+
+Manage UniFi network devices.
+
+```bash
+# List all devices across all hosts
+unifi-cli devices list
+
+# Filter devices by host ID
+unifi-cli devices list --host abc123
+
+# List with pagination
+unifi-cli devices list --page-size 20
+
+# Output as JSON
+unifi-cli devices list --json
+```
+
+### isp-metrics
+
+View ISP performance metrics (latency, bandwidth, packet loss).
+
+```bash
+# Get 5-minute interval metrics
+unifi-cli isp-metrics get 5m
+
+# Get 1-hour interval metrics
+unifi-cli isp-metrics get 1h
+
+# Specify duration (24h, 7d, or 30d)
+unifi-cli isp-metrics get 5m --duration 24h
+unifi-cli isp-metrics get 1h --duration 7d
+unifi-cli isp-metrics get 1h --duration 30d
+
+# Custom time range (epoch timestamps)
+unifi-cli isp-metrics get 5m --begin 1700000000 --end 1700100000
+
+# Output as JSON
+unifi-cli isp-metrics get 1h --duration 24h --json
+```
+
+### version
+
+Print version information.
+
+```bash
+unifi-cli version
 ```
 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
