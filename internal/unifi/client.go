@@ -10,7 +10,7 @@ import (
 
 var (
 	errIDRequired       = errors.New("id is required")
-	errMetricTypeInvald = errors.New("metric type must be '5m' or '1h'")
+	errMetricTypeInvalid = errors.New("metric type must be '5m' or '1h'")
 )
 
 const defaultBaseURL = "https://api.ui.com"
@@ -271,7 +271,7 @@ type ISPMetricsService struct {
 // Get returns ISP metrics for the given type (5m or 1h).
 func (s *ISPMetricsService) Get(ctx context.Context, metricType, duration string, beginTS, endTS string) (*Response[[]ISPMetricEntry], error) {
 	if metricType != "5m" && metricType != "1h" {
-		return nil, errMetricTypeInvald
+		return nil, errMetricTypeInvalid
 	}
 
 	path := fmt.Sprintf("/v1/isp-metrics/%s", metricType)
