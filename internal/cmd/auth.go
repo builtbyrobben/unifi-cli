@@ -74,6 +74,12 @@ func (cmd *AuthSetKeyCmd) Run(ctx context.Context) error {
 			"message": "API key stored in keyring",
 		})
 	}
+	if outfmt.IsPlain(ctx) {
+		return outfmt.WritePlain(os.Stdout,
+			[]string{"STATUS", "MESSAGE"},
+			[][]string{{"success", "API key stored in keyring"}},
+		)
+	}
 
 	fmt.Fprintln(os.Stderr, "API key stored in keyring")
 
@@ -114,21 +120,37 @@ func (cmd *AuthStatusCmd) Run(ctx context.Context) error {
 	if outfmt.IsJSON(ctx) {
 		return outfmt.WriteJSON(os.Stdout, status)
 	}
+	if outfmt.IsPlain(ctx) {
+		statusStr := "not_authenticated"
+		keyStr := ""
+		if envOverride {
+			statusStr = "env_override"
+		} else if hasKey {
+			statusStr = "authenticated"
+			if redacted, ok := status["key_redacted"].(string); ok {
+				keyStr = redacted
+			}
+		}
+		return outfmt.WritePlain(os.Stdout,
+			[]string{"STORAGE", "STATUS", "KEY"},
+			[][]string{{fmt.Sprintf("%s", status["storage_backend"]), statusStr, keyStr}},
+		)
+	}
 
 	// Human-readable output
-	fmt.Fprintf(os.Stderr, "Storage: %s\n", status["storage_backend"])
+	fmt.Fprintf(os.Stdout, "Storage: %s\n", status["storage_backend"])
 
 	switch {
 	case envOverride:
-		fmt.Fprintln(os.Stderr, "Status: Using UNIFI_API_KEY environment variable")
+		fmt.Fprintln(os.Stdout, "Status: Using UNIFI_API_KEY environment variable")
 	case hasKey:
-		fmt.Fprintln(os.Stderr, "Status: Authenticated")
+		fmt.Fprintln(os.Stdout, "Status: Authenticated")
 
 		if redacted, ok := status["key_redacted"].(string); ok {
-			fmt.Fprintf(os.Stderr, "Key: %s\n", redacted)
+			fmt.Fprintf(os.Stdout, "Key: %s\n", redacted)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "Status: Not authenticated")
+		fmt.Fprintln(os.Stdout, "Status: Not authenticated")
 		fmt.Fprintln(os.Stderr, "Run: unifi-cli auth set-key --stdin")
 	}
 
@@ -152,6 +174,12 @@ func (cmd *AuthRemoveCmd) Run(ctx context.Context) error {
 			"status":  "success",
 			"message": "API key removed",
 		})
+	}
+	if outfmt.IsPlain(ctx) {
+		return outfmt.WritePlain(os.Stdout,
+			[]string{"STATUS", "MESSAGE"},
+			[][]string{{"success", "API key removed"}},
+		)
 	}
 
 	fmt.Fprintln(os.Stderr, "API key removed")

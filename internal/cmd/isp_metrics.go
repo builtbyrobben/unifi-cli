@@ -33,6 +33,24 @@ func (cmd *ISPMetricsGetCmd) Run(ctx context.Context) error {
 	if outfmt.IsJSON(ctx) {
 		return outfmt.WriteJSON(os.Stdout, result)
 	}
+	if outfmt.IsPlain(ctx) {
+		headers := []string{"METRIC_TYPE", "HOST_ID", "SITE_ID", "TIME", "AVG_LATENCY", "DOWNLOAD_KBPS", "UPLOAD_KBPS"}
+		var rows [][]string
+		for _, entry := range result.Data {
+			for _, p := range entry.Periods {
+				avgLat := ""
+				dlKbps := ""
+				ulKbps := ""
+				if p.Data != nil && p.Data.WAN != nil {
+					avgLat = fmt.Sprintf("%.1f", p.Data.WAN.AvgLatency)
+					dlKbps = fmt.Sprintf("%.0f", p.Data.WAN.DownloadKbps)
+					ulKbps = fmt.Sprintf("%.0f", p.Data.WAN.UploadKbps)
+				}
+				rows = append(rows, []string{entry.MetricType, entry.HostID, entry.SiteID, p.MetricTime, avgLat, dlKbps, ulKbps})
+			}
+		}
+		return outfmt.WritePlain(os.Stdout, headers, rows)
+	}
 
 	if len(result.Data) == 0 {
 		fmt.Fprintln(os.Stderr, "No ISP metrics found")

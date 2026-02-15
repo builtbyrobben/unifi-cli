@@ -30,6 +30,14 @@ func (cmd *SitesListCmd) Run(ctx context.Context) error {
 	if outfmt.IsJSON(ctx) {
 		return outfmt.WriteJSON(os.Stdout, result)
 	}
+	if outfmt.IsPlain(ctx) {
+		headers := []string{"SITE_ID", "NAME", "HOST_ID", "PERMISSION", "OWNER"}
+		var rows [][]string
+		for _, s := range result.Data {
+			rows = append(rows, []string{s.SiteID, s.Meta.Name, s.HostID, s.Permission, fmt.Sprintf("%v", s.IsOwner)})
+		}
+		return outfmt.WritePlain(os.Stdout, headers, rows)
+	}
 
 	if len(result.Data) == 0 {
 		fmt.Fprintln(os.Stderr, "No sites found")

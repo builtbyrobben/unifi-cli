@@ -31,6 +31,16 @@ func (cmd *DevicesListCmd) Run(ctx context.Context) error {
 	if outfmt.IsJSON(ctx) {
 		return outfmt.WriteJSON(os.Stdout, result)
 	}
+	if outfmt.IsPlain(ctx) {
+		headers := []string{"HOST_ID", "DEVICE_ID", "NAME", "MODEL", "IP", "MAC", "STATUS"}
+		var rows [][]string
+		for _, dh := range result.Data {
+			for _, d := range dh.Devices {
+				rows = append(rows, []string{dh.HostID, d.ID, d.Name, d.Model, d.IP, d.MAC, d.Status})
+			}
+		}
+		return outfmt.WritePlain(os.Stdout, headers, rows)
+	}
 
 	if len(result.Data) == 0 {
 		fmt.Fprintln(os.Stderr, "No devices found")
