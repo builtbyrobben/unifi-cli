@@ -4,363 +4,275 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func newTestServer(t *testing.T) (*httptest.Server, *int) {
-	t.Helper()
-
-	loginCount := 0
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("login: expected POST, got %s", r.Method)
-		}
-
-		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
-
-		if body["username"] != "admin" || body["password"] != "secret" {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Invalid credentials"})
-
-			return
-		}
-
-		loginCount++
-
-		http.SetCookie(w, &http.Cookie{
-			Name:  "TOKEN",
-			Value: "test-session-token",
-			Path:  "/",
-		})
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
-
-	mux.HandleFunc("/proxy/network/api/s/default/stat/device", func(w http.ResponseWriter, r *http.Request) {
-		// Check for session cookie
-		cookie, err := r.Cookie("TOKEN")
-		if err != nil || cookie.Value != "test-session-token" {
-			w.WriteHeader(http.StatusUnauthorized)
-
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{"mac": "AA:BB:CC:DD:EE:FF", "name": "Switch", "type": "usw"},
-			},
-			"meta": map[string]string{"rc": "ok"},
-		})
-	})
-
-	server := httptest.NewServer(mux)
-
-	return server, &loginCount
-}
-
-func newTestClient(t *testing.T, server *httptest.Server) *Client {
-	t.Helper()
-
-	client, err := NewClient(Credentials{
-		Host:     server.URL,
-		Username: "admin",
-		Password: "secret",
-		Site:     "default",
-	})
-	if err != nil {
-		t.Fatalf("create client: %v", err)
+func TestClient_Get(t *testing.T) {
+	type response struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	}
-
-	return client
-}
-
-func TestNewClient_Validation(t *testing.T) {
-	tests := []struct {
-		name    string
-		creds   Credentials
-		wantErr bool
-	}{
-		{
-			name:    "valid credentials",
-			creds:   Credentials{Host: "https://localhost", Username: "admin", Password: "pass"},
-			wantErr: false,
-		},
-		{
-			name:    "missing host",
-			creds:   Credentials{Username: "admin", Password: "pass"},
-			wantErr: true,
-		},
-		{
-			name:    "missing username",
-			creds:   Credentials{Host: "https://localhost", Password: "pass"},
-			wantErr: true,
-		},
-		{
-			name:    "missing password",
-			creds:   Credentials{Host: "https://localhost", Username: "admin"},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewClient(tt.creds)
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error")
-			}
-
-			if !tt.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-func TestNewClient_DefaultSite(t *testing.T) {
-	client, err := NewClient(Credentials{
-		Host:     "https://localhost",
-		Username: "admin",
-		Password: "pass",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if client.SitePath() != "/proxy/network/api/s/default" {
-		t.Errorf("expected default site path, got %q", client.SitePath())
-	}
-}
-
-func TestClient_Login(t *testing.T) {
-	server, loginCount := newTestServer(t)
-	defer server.Close()
-
-	client := newTestClient(t, server)
-
-	err := client.Login(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if *loginCount != 1 {
-		t.Errorf("expected 1 login, got %d", *loginCount)
-	}
-}
-
-func TestClient_Login_InvalidCredentials(t *testing.T) {
-	server, _ := newTestServer(t)
-	defer server.Close()
-
-	client, err := NewClient(Credentials{
-		Host:     server.URL,
-		Username: "admin",
-		Password: "wrong",
-		Site:     "default",
-	})
-	if err != nil {
-		t.Fatalf("create client: %v", err)
-	}
-
-	err = client.Login(context.Background())
-	if err == nil {
-		t.Fatal("expected error for invalid credentials")
-	}
-}
-
-func TestClient_AutoLogin(t *testing.T) {
-	server, loginCount := newTestServer(t)
-	defer server.Close()
-
-	client := newTestClient(t, server)
-
-	// First request should trigger auto-login
-	var result map[string]any
-
-	err := client.Get(context.Background(), "/proxy/network/api/s/default/stat/device", &result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if *loginCount != 1 {
-		t.Errorf("expected 1 auto-login, got %d", *loginCount)
-	}
-}
-
-func TestClient_AutoReLogin_On401(t *testing.T) {
-	callCount := 0
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/auth/login" {
-			http.SetCookie(w, &http.Cookie{
-				Name:  "TOKEN",
-				Value: "token",
-				Path:  "/",
-			})
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-
-			return
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
 		}
 
-		callCount++
+		if r.URL.Path != "/test/resource" {
+			t.Errorf("expected path /test/resource, got %s", r.URL.Path)
+		}
 
-		// Return 401 on first call, 200 on retry
-		if callCount == 1 {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+		// Verify headers
+		if r.Header.Get("X-API-Key") != "test-key" {
+			t.Errorf("expected X-API-Key header 'test-key', got %q", r.Header.Get("X-API-Key"))
+		}
+
+		if r.Header.Get("User-Agent") != "unifi-cli/1.0" {
+			t.Errorf("expected User-Agent 'unifi-cli/1.0', got %q", r.Header.Get("User-Agent"))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"data": []any{},
-			"meta": map[string]string{"rc": "ok"},
-		})
+		json.NewEncoder(w).Encode(response{ID: "123", Name: "test"})
 	}))
 	defer server.Close()
 
-	client, err := NewClient(Credentials{
-		Host:     server.URL,
-		Username: "admin",
-		Password: "secret",
-		Site:     "default",
-	})
-	if err != nil {
-		t.Fatalf("create client: %v", err)
-	}
+	client := NewClient("test-key",
+		WithBaseURL(server.URL),
+		WithUserAgent("unifi-cli/1.0"),
+	)
 
-	// Pre-authenticate
-	client.authenticated = true
+	var result response
 
-	var result map[string]any
-
-	err = client.Get(context.Background(), "/test", &result)
+	err := client.Get(context.Background(), "/test/resource", &result)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if callCount != 2 {
-		t.Errorf("expected 2 calls (initial 401 + retry), got %d", callCount)
-	}
-}
-
-func TestClient_Get(t *testing.T) {
-	server, _ := newTestServer(t)
-	defer server.Close()
-
-	client := newTestClient(t, server)
-
-	var result map[string]any
-
-	err := client.Get(context.Background(), "/proxy/network/api/s/default/stat/device", &result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if result.ID != "123" {
+		t.Errorf("expected ID '123', got %q", result.ID)
 	}
 
-	data, ok := result["data"].([]any)
-	if !ok {
-		t.Fatal("expected data array in response")
-	}
-
-	if len(data) != 1 {
-		t.Fatalf("expected 1 device, got %d", len(data))
+	if result.Name != "test" {
+		t.Errorf("expected Name 'test', got %q", result.Name)
 	}
 }
 
 func TestClient_Post(t *testing.T) {
+	type requestBody struct {
+		HostIDs []string `json:"host_ids"`
+	}
+
+	type response struct {
+		ID string `json:"id"`
+	}
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/auth/login" {
-			http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: "token", Path: "/"})
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-
-			return
-		}
-
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("expected Content-Type 'application/json', got %q", r.Header.Get("Content-Type"))
+		}
+
+		body, _ := io.ReadAll(r.Body)
+
+		var req requestBody
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+
+		if len(req.HostIDs) != 2 {
+			t.Errorf("expected 2 host IDs, got %d", len(req.HostIDs))
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"data": []any{},
-			"meta": map[string]string{"rc": "ok"},
-		})
+		json.NewEncoder(w).Encode(response{ID: "new-123"})
 	}))
 	defer server.Close()
 
-	client, err := NewClient(Credentials{
-		Host:     server.URL,
-		Username: "admin",
-		Password: "secret",
-	})
+	client := NewClient("test-key", WithBaseURL(server.URL))
+
+	req := requestBody{HostIDs: []string{"host-1", "host-2"}}
+
+	var result response
+
+	err := client.Post(context.Background(), "/create", req, &result)
 	if err != nil {
-		t.Fatalf("create client: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var result map[string]any
-	body := map[string]string{"cmd": "restart", "mac": "AA:BB:CC:DD:EE:FF"}
+	if result.ID != "new-123" {
+		t.Errorf("expected ID 'new-123', got %q", result.ID)
+	}
+}
 
-	err = client.Post(context.Background(), "/cmd/devmgr", body, &result)
+func TestClient_Delete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+
+	err := client.Delete(context.Background(), "/resource/123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestClient_APIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/auth/login" {
-			http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: "token", Path: "/"})
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-
-			return
-		}
-
+func TestClient_APIError_401(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]any{
-			"meta": map[string]string{"rc": "error", "msg": "api.err.UnknownDevice"},
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"code":    "unauthorized",
+			"message": "Invalid API key",
 		})
 	}))
 	defer server.Close()
 
-	client, err := NewClient(Credentials{
-		Host:     server.URL,
-		Username: "admin",
-		Password: "secret",
-	})
-	if err != nil {
-		t.Fatalf("create client: %v", err)
-	}
+	client := NewClient("bad-key", WithBaseURL(server.URL))
 
 	var result map[string]any
 
-	err = client.Get(context.Background(), "/test", &result)
+	err := client.Get(context.Background(), "/test", &result)
 	if err == nil {
-		t.Fatal("expected error for 404 response")
+		t.Fatal("expected error for 401 response")
 	}
 
 	var apiErr *APIError
+
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *APIError, got %T: %v", err, err)
 	}
 
-	if apiErr.StatusCode != 404 {
-		t.Errorf("expected status 404, got %d", apiErr.StatusCode)
+	if apiErr.StatusCode != 401 {
+		t.Errorf("expected status 401, got %d", apiErr.StatusCode)
 	}
 
-	if apiErr.Message != "api.err.UnknownDevice" {
-		t.Errorf("expected message 'api.err.UnknownDevice', got %q", apiErr.Message)
+	if apiErr.Message != "Invalid API key" {
+		t.Errorf("expected message 'Invalid API key', got %q", apiErr.Message)
 	}
+}
+
+func TestClient_APIError_429(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Rate limit exceeded",
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+
+	var result map[string]any
+
+	err := client.Get(context.Background(), "/test", &result)
+	if err == nil {
+		t.Fatal("expected error for 429 response")
+	}
+
+	var apiErr *APIError
+
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+
+	if apiErr.StatusCode != 429 {
+		t.Errorf("expected status 429, got %d", apiErr.StatusCode)
+	}
+}
+
+func TestClient_APIError_500_NoJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal Server Error"))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+
+	var result map[string]any
+
+	err := client.Get(context.Background(), "/test", &result)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+
+	var apiErr *APIError
+
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+
+	if apiErr.StatusCode != 500 {
+		t.Errorf("expected status 500, got %d", apiErr.StatusCode)
+	}
+
+	// Should fall back to status text
+	if apiErr.Message != "Internal Server Error" {
+		t.Errorf("expected 'Internal Server Error', got %q", apiErr.Message)
+	}
+}
+
+func TestClient_Put(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+
+	var result map[string]string
+
+	err := client.Put(context.Background(), "/resource/123", map[string]string{"name": "new"}, &result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["status"] != "updated" {
+		t.Errorf("expected status 'updated', got %q", result["status"])
+	}
+}
+
+func TestClient_CustomHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Custom") != "value" {
+			t.Errorf("expected X-Custom header 'value', got %q", r.Header.Get("X-Custom"))
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+
+	resp, err := client.Do(context.Background(), Request{
+		Method:  http.MethodGet,
+		Path:    "/test",
+		Headers: map[string]string{"X-Custom": "value"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	resp.Body.Close()
 }
 
 func TestAPIError_Error(t *testing.T) {
@@ -372,45 +284,9 @@ func TestAPIError_Error(t *testing.T) {
 	}
 }
 
-func TestSitePath(t *testing.T) {
-	client, err := NewClient(Credentials{
-		Host:     "https://localhost",
-		Username: "admin",
-		Password: "pass",
-		Site:     "mysite",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := "/proxy/network/api/s/mysite"
-	if client.SitePath() != expected {
-		t.Errorf("SitePath() = %q, want %q", client.SitePath(), expected)
-	}
-}
-
-func TestWithUserAgent(t *testing.T) {
-	client, err := NewClient(
-		Credentials{Host: "https://localhost", Username: "admin", Password: "pass"},
-		WithUserAgent("test-agent/2.0"),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if client.userAgent != "test-agent/2.0" {
-		t.Errorf("expected userAgent 'test-agent/2.0', got %q", client.userAgent)
-	}
-}
-
 func TestWithTimeout(t *testing.T) {
-	client, err := NewClient(
-		Credentials{Host: "https://localhost", Username: "admin", Password: "pass"},
-		WithTimeout(5000000000),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	client := NewClient("key")
+	WithTimeout(5000000000)(client) // 5 seconds
 
 	if client.httpClient.Timeout != 5000000000 {
 		t.Errorf("expected timeout 5s, got %v", client.httpClient.Timeout)

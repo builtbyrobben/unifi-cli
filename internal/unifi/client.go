@@ -9,117 +9,163 @@ import (
 )
 
 var (
-	errMACRequired = errors.New("MAC address is required")
-	errIDRequired  = errors.New("ID is required")
-	errNotFound    = errors.New("not found")
+	errIDRequired       = errors.New("id is required")
+	errMetricTypeInvald = errors.New("metric type must be '5m' or '1h'")
 )
 
-// Client wraps the API client with UniFi-specific methods.
+const defaultBaseURL = "https://api.ui.com"
+
+// Client wraps the API client with UniFi Site Manager methods.
 type Client struct {
 	*api.Client
 }
 
-// NewClient creates a new UniFi service client.
-func NewClient(apiClient *api.Client) *Client {
-	return &Client{Client: apiClient}
+// NewClient creates a new UniFi Site Manager API client.
+func NewClient(apiKey string) *Client {
+	return &Client{
+		Client: api.NewClient(apiKey,
+			api.WithBaseURL(defaultBaseURL),
+			api.WithUserAgent("unifi-cli/1.0"),
+		),
+	}
 }
 
-// Response is the standard UniFi API response envelope.
+// Response is the standard Site Manager API response envelope.
 type Response[T any] struct {
-	Data []T  `json:"data"`
-	Meta Meta `json:"meta"`
+	Data           T      `json:"data"`
+	HTTPStatusCode int    `json:"http_status_code"`
+	TraceID        string `json:"trace_id"`
+	NextToken      string `json:"next_token,omitempty"`
 }
 
-// Meta contains response metadata.
-type Meta struct {
-	RC  string `json:"rc"`
-	Msg string `json:"msg,omitempty"`
+// Host represents a UniFi host (console/controller).
+type Host struct {
+	ID                        string    `json:"id"`
+	HardwareID                string    `json:"hardware_id,omitempty"`
+	Type                      string    `json:"type,omitempty"`
+	IPAddress                 string    `json:"ip_address,omitempty"`
+	Owner                     bool      `json:"owner,omitempty"`
+	IsBlocked                 bool      `json:"is_blocked,omitempty"`
+	RegistrationTime          string    `json:"registration_time,omitempty"`
+	LastConnectionStateChange string    `json:"last_connection_state_change,omitempty"`
+	LatestBackupTime          string    `json:"latest_backup_time,omitempty"`
+	UserData                  *UserData `json:"user_data,omitempty"`
+	ReportedState             any       `json:"reported_state,omitempty"`
+}
+
+// UserData contains user-defined metadata for a host.
+type UserData struct {
+	Name string `json:"name,omitempty"`
+}
+
+// Site represents a UniFi site.
+type Site struct {
+	SiteID     string          `json:"site_id"`
+	HostID     string          `json:"host_id,omitempty"`
+	Meta       SiteMeta        `json:"meta"`
+	Statistics *SiteStatistics `json:"statistics,omitempty"`
+	Permission string          `json:"permission,omitempty"`
+	IsOwner    bool            `json:"is_owner,omitempty"`
+}
+
+// SiteMeta contains site metadata.
+type SiteMeta struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
+	GatewayMAC  string `json:"gateway_mac,omitempty"`
+}
+
+// SiteStatistics contains site statistics.
+type SiteStatistics struct {
+	Counts      *SiteCounts      `json:"counts,omitempty"`
+	Performance *SitePerformance `json:"performance,omitempty"`
+}
+
+// SiteCounts contains device and client counts.
+type SiteCounts struct {
+	TotalDevice    int `json:"total_device,omitempty"`
+	ActiveDevice   int `json:"active_device,omitempty"`
+	InactiveDevice int `json:"inactive_device,omitempty"`
+	TotalClient    int `json:"total_client,omitempty"`
+	WiredClient    int `json:"wired_client,omitempty"`
+	WirelessClient int `json:"wireless_client,omitempty"`
+}
+
+// SitePerformance contains site performance metrics.
+type SitePerformance struct {
+	WanLatencyAvg float64 `json:"wan_latency_avg,omitempty"`
+	WanUptimePct  float64 `json:"wan_uptime_pct,omitempty"`
+}
+
+// DeviceHost represents a host and its devices from the devices endpoint.
+type DeviceHost struct {
+	HostID   string   `json:"host_id"`
+	HostName string   `json:"host_name,omitempty"`
+	Devices  []Device `json:"devices"`
+	UpdateAt string   `json:"updated_at,omitempty"`
 }
 
 // Device represents a UniFi network device.
 type Device struct {
-	MAC             string  `json:"mac"`
-	IP              string  `json:"ip,omitempty"`
-	Name            string  `json:"name,omitempty"`
-	Model           string  `json:"model,omitempty"`
-	Type            string  `json:"type,omitempty"`
-	Version         string  `json:"version,omitempty"`
-	Adopted         bool    `json:"adopted"`
-	State           int     `json:"state"`
-	Uptime          int64   `json:"uptime,omitempty"`
-	LastSeen        int64   `json:"last_seen,omitempty"`
-	Upgradable      bool    `json:"upgradable,omitempty"`
-	NumSta          int     `json:"num_sta,omitempty"`
-	TxBytes         int64   `json:"tx_bytes,omitempty"`
-	RxBytes         int64   `json:"rx_bytes,omitempty"`
-	SatisfactionAvg float64 `json:"satisfaction,omitempty"`
+	ID             string `json:"id"`
+	MAC            string `json:"mac,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Shortname      string `json:"shortname,omitempty"`
+	IP             string `json:"ip,omitempty"`
+	ProductLine    string `json:"product_line,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Version        string `json:"version,omitempty"`
+	FirmwareStatus string `json:"firmware_status,omitempty"`
+	UpdateAvail    string `json:"update_available,omitempty"`
+	IsConsole      bool   `json:"is_console,omitempty"`
+	IsManaged      bool   `json:"is_managed,omitempty"`
+	StartupTime    string `json:"startup_time,omitempty"`
+	AdoptionTime   string `json:"adoption_time,omitempty"`
+	Note           string `json:"note,omitempty"`
 }
 
-// ClientDevice represents a network client (station).
-type ClientDevice struct {
-	MAC        string `json:"mac"`
-	IP         string `json:"ip,omitempty"`
-	Hostname   string `json:"hostname,omitempty"`
-	Name       string `json:"name,omitempty"`
-	IsWired    bool   `json:"is_wired"`
-	Network    string `json:"network,omitempty"`
-	NetworkID  string `json:"network_id,omitempty"`
-	Uptime     int64  `json:"uptime,omitempty"`
-	LastSeen   int64  `json:"last_seen,omitempty"`
-	TxBytes    int64  `json:"tx_bytes,omitempty"`
-	RxBytes    int64  `json:"rx_bytes,omitempty"`
-	Blocked    bool   `json:"blocked,omitempty"`
-	IsGuest    bool   `json:"is_guest,omitempty"`
-	Noted      bool   `json:"noted,omitempty"`
-	Note       string `json:"note,omitempty"`
-	DeviceName string `json:"device_name,omitempty"`
+// ISPMetricEntry represents an ISP metric entry from the metrics endpoint.
+type ISPMetricEntry struct {
+	MetricType string      `json:"metric_type,omitempty"`
+	Periods    []ISPPeriod `json:"periods,omitempty"`
+	HostID     string      `json:"host_id,omitempty"`
+	SiteID     string      `json:"site_id,omitempty"`
 }
 
-// Network represents a UniFi network/VLAN configuration.
-type Network struct {
-	ID                 string `json:"_id"` //nolint:tagliatelle // UniFi API uses _id
-	Name               string `json:"name"`
-	Purpose            string `json:"purpose,omitempty"`
-	IPSubnet           string `json:"ip_subnet,omitempty"`
-	VLAN               int    `json:"vlan,omitempty"`
-	VLANEnabled        bool   `json:"vlan_enabled,omitempty"`
-	DomainName         string `json:"domain_name,omitempty"`
-	DHCPDEnabled       bool   `json:"dhcpd_enabled,omitempty"`
-	DHCPDStart         string `json:"dhcpd_start,omitempty"`
-	DHCPDStop          string `json:"dhcpd_stop,omitempty"`
-	NetworkGroup       string `json:"networkgroup,omitempty"`
-	IsNAT              bool   `json:"is_nat,omitempty"`
-	InternetAccessible bool   `json:"internet_access_enabled,omitempty"`
+// ISPPeriod represents a single metric period.
+type ISPPeriod struct {
+	MetricTime string         `json:"metric_time,omitempty"`
+	Data       *ISPPeriodData `json:"data,omitempty"`
 }
 
-// HealthEntry represents a site health entry.
-type HealthEntry struct {
-	Subsystem       string  `json:"subsystem"`
-	Status          string  `json:"status"`
-	NumUser         int     `json:"num_user,omitempty"`
-	NumGuest        int     `json:"num_guest,omitempty"`
-	NumAdopted      int     `json:"num_adopted,omitempty"`
-	NumDisconnected int     `json:"num_disconnected,omitempty"`
-	NumPending      int     `json:"num_pending,omitempty"`
-	TxBytesR        float64 `json:"tx_bytes-r,omitempty"` //nolint:tagliatelle // UniFi API field name
-	RxBytesR        float64 `json:"rx_bytes-r,omitempty"` //nolint:tagliatelle // UniFi API field name
-	ISPName         string  `json:"isp_name,omitempty"`
-	ISPOrganization string  `json:"isp_organization,omitempty"`
-	Latency         int     `json:"latency,omitempty"`
-	Uptime          int64   `json:"uptime,omitempty"`
+// ISPPeriodData contains WAN metrics data.
+type ISPPeriodData struct {
+	WAN *WANMetrics `json:"wan,omitempty"`
 }
 
-// SysInfo represents site system information.
-type SysInfo struct {
-	Timezone    string   `json:"timezone,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	Hostname    string   `json:"hostname,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	IPAddrs     []string `json:"ip_addrs,omitempty"`
-	UpdateAvail bool     `json:"update_available,omitempty"`
-	LiveChat    string   `json:"live_chat,omitempty"`
-	AutoBackup  bool     `json:"autobackup,omitempty"`
-	BuildNumber string   `json:"build,omitempty"`
+// WANMetrics contains WAN performance metrics.
+type WANMetrics struct {
+	AvgLatency   float64 `json:"avg_latency,omitempty"`
+	DownloadKbps float64 `json:"download_kbps,omitempty"`
+	UploadKbps   float64 `json:"upload_kbps,omitempty"`
+	PacketLoss   float64 `json:"packet_loss,omitempty"`
+	MaxLatency   float64 `json:"max_latency,omitempty"`
+	Uptime       float64 `json:"uptime,omitempty"`
+	Downtime     float64 `json:"downtime,omitempty"`
+	ISPASN       int     `json:"isp_asn,omitempty"`
+	ISPName      string  `json:"isp_name,omitempty"`
+}
+
+// Hosts returns the hosts service.
+func (c *Client) Hosts() *HostsService {
+	return &HostsService{client: c}
+}
+
+// Sites returns the sites service.
+func (c *Client) Sites() *SitesService {
+	return &SitesService{client: c}
 }
 
 // Devices returns the devices service.
@@ -127,19 +173,67 @@ func (c *Client) Devices() *DevicesService {
 	return &DevicesService{client: c}
 }
 
-// Clients returns the clients service.
-func (c *Client) Clients() *ClientsService {
-	return &ClientsService{client: c}
+// ISPMetrics returns the ISP metrics service.
+func (c *Client) ISPMetrics() *ISPMetricsService {
+	return &ISPMetricsService{client: c}
 }
 
-// Networks returns the networks service.
-func (c *Client) Networks() *NetworksService {
-	return &NetworksService{client: c}
+// HostsService handles host operations.
+type HostsService struct {
+	client *Client
 }
 
-// Stats returns the stats service.
-func (c *Client) Stats() *StatsService {
-	return &StatsService{client: c}
+// List returns all hosts with optional pagination.
+func (s *HostsService) List(ctx context.Context, pageSize int) (*Response[[]Host], error) {
+	path := "/v1/hosts"
+
+	if pageSize > 0 {
+		path = fmt.Sprintf("/v1/hosts?pageSize=%d", pageSize)
+	}
+
+	var result Response[[]Host]
+	if err := s.client.Get(ctx, path, &result); err != nil {
+		return nil, fmt.Errorf("list hosts: %w", err)
+	}
+
+	return &result, nil
+}
+
+// Get returns a host by ID.
+func (s *HostsService) Get(ctx context.Context, id string) (*Response[Host], error) {
+	if id == "" {
+		return nil, errIDRequired
+	}
+
+	path := fmt.Sprintf("/v1/hosts/%s", id)
+
+	var result Response[Host]
+	if err := s.client.Get(ctx, path, &result); err != nil {
+		return nil, fmt.Errorf("get host: %w", err)
+	}
+
+	return &result, nil
+}
+
+// SitesService handles site operations.
+type SitesService struct {
+	client *Client
+}
+
+// List returns all sites with optional pagination.
+func (s *SitesService) List(ctx context.Context, pageSize int) (*Response[[]Site], error) {
+	path := "/v1/sites"
+
+	if pageSize > 0 {
+		path = fmt.Sprintf("/v1/sites?pageSize=%d", pageSize)
+	}
+
+	var result Response[[]Site]
+	if err := s.client.Get(ctx, path, &result); err != nil {
+		return nil, fmt.Errorf("list sites: %w", err)
+	}
+
+	return &result, nil
 }
 
 // DevicesService handles device operations.
@@ -147,244 +241,60 @@ type DevicesService struct {
 	client *Client
 }
 
-// List returns all network devices, optionally filtered by type.
-func (s *DevicesService) List(ctx context.Context, deviceType string) ([]Device, error) {
-	path := s.client.SitePath() + "/stat/device"
+// List returns all devices, optionally filtered by host ID.
+func (s *DevicesService) List(ctx context.Context, hostID string, pageSize int) (*Response[[]DeviceHost], error) {
+	path := "/v1/devices"
+	sep := "?"
 
-	var resp Response[Device]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
+	if hostID != "" {
+		path += fmt.Sprintf("%shostIds[]=%s", sep, hostID)
+		sep = "&"
+	}
+
+	if pageSize > 0 {
+		path += fmt.Sprintf("%spageSize=%d", sep, pageSize)
+	}
+
+	var result Response[[]DeviceHost]
+	if err := s.client.Get(ctx, path, &result); err != nil {
 		return nil, fmt.Errorf("list devices: %w", err)
 	}
 
-	if deviceType == "" {
-		return resp.Data, nil
-	}
-
-	var filtered []Device
-
-	for _, d := range resp.Data {
-		if d.Type == deviceType {
-			filtered = append(filtered, d)
-		}
-	}
-
-	return filtered, nil
+	return &result, nil
 }
 
-// Get returns a device by MAC address.
-func (s *DevicesService) Get(ctx context.Context, mac string) (*Device, error) {
-	if mac == "" {
-		return nil, errMACRequired
-	}
-
-	path := s.client.SitePath() + "/stat/device/" + mac
-
-	var resp Response[Device]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("get device: %w", err)
-	}
-
-	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("device %s: %w", mac, errNotFound)
-	}
-
-	return &resp.Data[0], nil
-}
-
-// Restart restarts a device by MAC address.
-func (s *DevicesService) Restart(ctx context.Context, mac string) error {
-	if mac == "" {
-		return errMACRequired
-	}
-
-	path := s.client.SitePath() + "/cmd/devmgr"
-	body := map[string]string{
-		"cmd": "restart",
-		"mac": mac,
-	}
-
-	var resp Response[any]
-	if err := s.client.Post(ctx, path, body, &resp); err != nil {
-		return fmt.Errorf("restart device: %w", err)
-	}
-
-	return nil
-}
-
-// ClientsService handles client operations.
-type ClientsService struct {
+// ISPMetricsService handles ISP metrics operations.
+type ISPMetricsService struct {
 	client *Client
 }
 
-// ListActive returns currently connected clients, optionally filtered by type.
-func (s *ClientsService) ListActive(ctx context.Context, clientType string) ([]ClientDevice, error) {
-	path := s.client.SitePath() + "/stat/sta"
-
-	var resp Response[ClientDevice]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("list active clients: %w", err)
+// Get returns ISP metrics for the given type (5m or 1h).
+func (s *ISPMetricsService) Get(ctx context.Context, metricType, duration string, beginTS, endTS string) (*Response[[]ISPMetricEntry], error) {
+	if metricType != "5m" && metricType != "1h" {
+		return nil, errMetricTypeInvald
 	}
 
-	return filterClients(resp.Data, clientType), nil
-}
+	path := fmt.Sprintf("/v1/isp-metrics/%s", metricType)
+	sep := "?"
 
-// ListAll returns all known clients, optionally filtered by type.
-func (s *ClientsService) ListAll(ctx context.Context, clientType string) ([]ClientDevice, error) {
-	path := s.client.SitePath() + "/rest/user"
-
-	var resp Response[ClientDevice]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("list all clients: %w", err)
+	if duration != "" {
+		path += fmt.Sprintf("%sduration=%s", sep, duration)
+		sep = "&"
 	}
 
-	return filterClients(resp.Data, clientType), nil
-}
-
-// Get returns a client by MAC address.
-func (s *ClientsService) Get(ctx context.Context, mac string) (*ClientDevice, error) {
-	if mac == "" {
-		return nil, errMACRequired
+	if beginTS != "" {
+		path += fmt.Sprintf("%sbeginTimestamp=%s", sep, beginTS)
+		sep = "&"
 	}
 
-	path := s.client.SitePath() + "/stat/sta/" + mac
-
-	var resp Response[ClientDevice]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("get client: %w", err)
+	if endTS != "" {
+		path += fmt.Sprintf("%sendTimestamp=%s", sep, endTS)
 	}
 
-	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("client %s: %w", mac, errNotFound)
+	var result Response[[]ISPMetricEntry]
+	if err := s.client.Get(ctx, path, &result); err != nil {
+		return nil, fmt.Errorf("get isp metrics: %w", err)
 	}
 
-	return &resp.Data[0], nil
-}
-
-// Block blocks a client by MAC address.
-func (s *ClientsService) Block(ctx context.Context, mac string) error {
-	if mac == "" {
-		return errMACRequired
-	}
-
-	path := s.client.SitePath() + "/cmd/stamgr"
-	body := map[string]string{
-		"cmd": "block-sta",
-		"mac": mac,
-	}
-
-	var resp Response[any]
-	if err := s.client.Post(ctx, path, body, &resp); err != nil {
-		return fmt.Errorf("block client: %w", err)
-	}
-
-	return nil
-}
-
-// Unblock unblocks a client by MAC address.
-func (s *ClientsService) Unblock(ctx context.Context, mac string) error {
-	if mac == "" {
-		return errMACRequired
-	}
-
-	path := s.client.SitePath() + "/cmd/stamgr"
-	body := map[string]string{
-		"cmd": "unblock-sta",
-		"mac": mac,
-	}
-
-	var resp Response[any]
-	if err := s.client.Post(ctx, path, body, &resp); err != nil {
-		return fmt.Errorf("unblock client: %w", err)
-	}
-
-	return nil
-}
-
-func filterClients(clients []ClientDevice, clientType string) []ClientDevice {
-	if clientType == "" {
-		return clients
-	}
-
-	var filtered []ClientDevice
-
-	for _, c := range clients {
-		switch clientType {
-		case "wired":
-			if c.IsWired {
-				filtered = append(filtered, c)
-			}
-		case "wireless":
-			if !c.IsWired {
-				filtered = append(filtered, c)
-			}
-		}
-	}
-
-	return filtered
-}
-
-// NetworksService handles network operations.
-type NetworksService struct {
-	client *Client
-}
-
-// List returns all network/VLAN configurations.
-func (s *NetworksService) List(ctx context.Context) ([]Network, error) {
-	path := s.client.SitePath() + "/rest/networkconf"
-
-	var resp Response[Network]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("list networks: %w", err)
-	}
-
-	return resp.Data, nil
-}
-
-// Get returns a specific network configuration by ID.
-func (s *NetworksService) Get(ctx context.Context, id string) (*Network, error) {
-	if id == "" {
-		return nil, errIDRequired
-	}
-
-	path := s.client.SitePath() + "/rest/networkconf/" + id
-
-	var resp Response[Network]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("get network: %w", err)
-	}
-
-	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("network %s: %w", id, errNotFound)
-	}
-
-	return &resp.Data[0], nil
-}
-
-// StatsService handles stats operations.
-type StatsService struct {
-	client *Client
-}
-
-// Health returns the site health overview.
-func (s *StatsService) Health(ctx context.Context) ([]HealthEntry, error) {
-	path := s.client.SitePath() + "/stat/health"
-
-	var resp Response[HealthEntry]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("get health: %w", err)
-	}
-
-	return resp.Data, nil
-}
-
-// SysInfo returns site system information.
-func (s *StatsService) SysInfo(ctx context.Context) ([]SysInfo, error) {
-	path := s.client.SitePath() + "/stat/sysinfo"
-
-	var resp Response[SysInfo]
-	if err := s.client.Get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("get sysinfo: %w", err)
-	}
-
-	return resp.Data, nil
+	return &result, nil
 }

@@ -40,13 +40,13 @@ func TestAllowedBackends(t *testing.T) {
 		{
 			name:    "auto backend",
 			info:    KeyringBackendInfo{Value: "auto", Source: "default"},
-			wantLen: 0,
+			wantLen: 0, // nil slice
 			wantErr: false,
 		},
 		{
 			name:    "empty backend",
 			info:    KeyringBackendInfo{Value: "", Source: "default"},
-			wantLen: 0,
+			wantLen: 0, // nil slice
 			wantErr: false,
 		},
 		{
@@ -138,26 +138,5 @@ func TestShouldForceFileBackend(t *testing.T) {
 				t.Errorf("shouldForceFileBackend() = %v, want %v", result, tt.want)
 			}
 		})
-	}
-}
-
-func TestAllCredentialKeys(t *testing.T) {
-	keys := AllCredentialKeys()
-
-	if len(keys) != 4 {
-		t.Fatalf("expected 4 credential keys, got %d", len(keys))
-	}
-
-	expected := map[string]bool{
-		KeyHost:     true,
-		KeyUsername: true,
-		KeyPassword: true,
-		KeySite:     true,
-	}
-
-	for _, k := range keys {
-		if !expected[k] {
-			t.Errorf("unexpected key: %s", k)
-		}
 	}
 }

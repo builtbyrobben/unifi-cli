@@ -28,7 +28,7 @@ func TestFormat_KeyNotFound(t *testing.T) {
 		t.Errorf("expected 'not found' in output, got: %s", result)
 	}
 
-	if !strings.Contains(result, "auth set-credentials") {
+	if !strings.Contains(result, "auth set-key") {
 		t.Errorf("expected auth instructions in output, got: %s", result)
 	}
 }

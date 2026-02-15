@@ -3,145 +3,57 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"time"
 )
 
-var (
-	errLoginFailed   = errors.New("login failed")
-	errUnauthorized  = errors.New("unauthorized")
-	errEmptyHost     = errors.New("host URL is required")
-	errEmptyUsername = errors.New("username is required")
-	errEmptyPassword = errors.New("password is required")
-)
-
-// Credentials holds UniFi controller login credentials.
-type Credentials struct {
-	Host     string
-	Username string
-	Password string
-	Site     string
-}
-
-// Client is an HTTP client with cookie-based session auth for UniFi controllers.
 type Client struct {
-	httpClient    *http.Client
-	creds         Credentials
-	userAgent     string
-	authenticated bool
+	httpClient *http.Client
+	baseURL    string
+	apiKey     string
+	userAgent  string
 }
 
-// ClientOption configures the Client.
 type ClientOption func(*Client)
 
-// WithInsecure skips TLS certificate verification.
-func WithInsecure(insecure bool) ClientOption {
+func WithBaseURL(url string) ClientOption {
 	return func(c *Client) {
-		if insecure {
-			transport := c.httpClient.Transport.(*http.Transport)
-			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested via --insecure flag
-		}
+		c.baseURL = url
 	}
 }
 
-// WithUserAgent sets the User-Agent header.
 func WithUserAgent(ua string) ClientOption {
 	return func(c *Client) {
 		c.userAgent = ua
 	}
 }
 
-// WithTimeout sets the HTTP client timeout.
 func WithTimeout(timeout time.Duration) ClientOption {
 	return func(c *Client) {
 		c.httpClient.Timeout = timeout
 	}
 }
 
-// NewClient creates a new UniFi API client with cookie session management.
-func NewClient(creds Credentials, opts ...ClientOption) (*Client, error) {
-	if creds.Host == "" {
-		return nil, errEmptyHost
-	}
-
-	if creds.Username == "" {
-		return nil, errEmptyUsername
-	}
-
-	if creds.Password == "" {
-		return nil, errEmptyPassword
-	}
-
-	if creds.Site == "" {
-		creds.Site = "default"
-	}
-
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("create cookie jar: %w", err)
-	}
-
+func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Jar:       jar,
-			Transport: &http.Transport{},
+			Timeout: 30 * time.Second,
 		},
-		creds:     creds,
+		apiKey:    apiKey,
 		userAgent: "unifi-cli/1.0",
+		baseURL:   "https://api.ui.com",
 	}
 
 	for _, opt := range opts {
 		opt(c)
 	}
 
-	return c, nil
+	return c
 }
 
-// Login authenticates with the UniFi controller and stores the session cookie.
-func (c *Client) Login(ctx context.Context) error {
-	body := map[string]string{
-		"username": c.creds.Username,
-		"password": c.creds.Password,
-	}
-
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal login body: %w", err)
-	}
-
-	url := c.creds.Host + "/api/auth/login"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return fmt.Errorf("create login request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", c.userAgent)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("execute login request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: status %d", errLoginFailed, resp.StatusCode)
-	}
-
-	c.authenticated = true
-
-	return nil
-}
-
-// Request describes an HTTP request to the UniFi API.
 type Request struct {
 	Method  string
 	Path    string
@@ -149,35 +61,7 @@ type Request struct {
 	Headers map[string]string
 }
 
-// Do performs an HTTP request, logging in first if needed, and retrying on 401.
 func (c *Client) Do(ctx context.Context, req Request) (*http.Response, error) {
-	if !c.authenticated {
-		if err := c.Login(ctx); err != nil {
-			return nil, err
-		}
-	}
-
-	resp, err := c.doOnce(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	// Auto re-login on 401
-	if resp.StatusCode == http.StatusUnauthorized {
-		_ = resp.Body.Close()
-		c.authenticated = false
-
-		if err := c.Login(ctx); err != nil {
-			return nil, fmt.Errorf("%w: re-login failed: %w", errUnauthorized, err)
-		}
-
-		return c.doOnce(ctx, req)
-	}
-
-	return resp, nil
-}
-
-func (c *Client) doOnce(ctx context.Context, req Request) (*http.Response, error) {
 	var bodyReader io.Reader
 
 	if req.Body != nil {
@@ -189,16 +73,23 @@ func (c *Client) doOnce(ctx context.Context, req Request) (*http.Response, error
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
-	url := c.creds.Host + req.Path
+	url := c.baseURL + req.Path
 
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
+	// Set default headers
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("User-Agent", c.userAgent)
 
+	// Set API key header
+	if c.apiKey != "" {
+		httpReq.Header.Set("X-API-Key", c.apiKey)
+	}
+
+	// Set custom headers
 	for key, value := range req.Headers {
 		httpReq.Header.Set(key, value)
 	}
@@ -211,14 +102,30 @@ func (c *Client) doOnce(ctx context.Context, req Request) (*http.Response, error
 	return resp, nil
 }
 
-// Get performs a GET request and decodes the response into result.
 func (c *Client) Get(ctx context.Context, path string, result any) error {
 	return c.doJSON(ctx, Request{Method: http.MethodGet, Path: path}, result)
 }
 
-// Post performs a POST request and decodes the response into result.
 func (c *Client) Post(ctx context.Context, path string, body, result any) error {
 	return c.doJSON(ctx, Request{Method: http.MethodPost, Path: path, Body: body}, result)
+}
+
+func (c *Client) Put(ctx context.Context, path string, body, result any) error {
+	return c.doJSON(ctx, Request{Method: http.MethodPut, Path: path, Body: body}, result)
+}
+
+func (c *Client) Delete(ctx context.Context, path string) error {
+	resp, err := c.Do(ctx, Request{Method: http.MethodDelete, Path: path})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return parseAPIError(resp)
+	}
+
+	return nil
 }
 
 func (c *Client) doJSON(ctx context.Context, req Request, result any) error {
@@ -241,7 +148,7 @@ func (c *Client) doJSON(ctx context.Context, req Request, result any) error {
 	return nil
 }
 
-// APIError represents a UniFi API error.
+// APIError represents a UniFi Site Manager API error.
 type APIError struct {
 	StatusCode int
 	Message    string
@@ -255,19 +162,16 @@ func parseAPIError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 
 	var apiErr struct {
-		Meta struct {
-			RC  string `json:"rc"`
-			Msg string `json:"msg"`
-		} `json:"meta"`
 		Message string `json:"message"`
+		Code    string `json:"code"`
 		Error   string `json:"error"`
 	}
 
+	// Try to parse as JSON
 	if json.Unmarshal(body, &apiErr) == nil {
-		msg := apiErr.Meta.Msg
-
+		msg := apiErr.Message
 		if msg == "" {
-			msg = apiErr.Message
+			msg = apiErr.Code
 		}
 
 		if msg == "" {
@@ -279,13 +183,9 @@ func parseAPIError(resp *http.Response) error {
 		}
 	}
 
+	// Fallback to status text
 	return &APIError{
 		StatusCode: resp.StatusCode,
 		Message:    http.StatusText(resp.StatusCode),
 	}
-}
-
-// SitePath returns the API path prefix for the configured site.
-func (c *Client) SitePath() string {
-	return "/proxy/network/api/s/" + c.creds.Site
 }

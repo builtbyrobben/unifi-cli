@@ -15,14 +15,12 @@ import (
 
 // RootFlags holds global CLI flags.
 type RootFlags struct {
-	Color    string `help:"Color output: auto|always|never" default:"${color}"`
-	JSON     bool   `help:"Output JSON to stdout (best for scripting)" default:"${json}"`
-	Plain    bool   `help:"Output stable, parseable text to stdout (TSV; no colors)" default:"${plain}"`
-	Force    bool   `help:"Skip confirmations for destructive commands"`
-	NoInput  bool   `help:"Never prompt; fail instead (useful for CI)"`
-	Verbose  bool   `help:"Enable verbose logging"`
-	Insecure bool   `help:"Skip TLS certificate verification (for self-signed certs)"`
-	Site     string `help:"Override UniFi site name" default:"" env:"UNIFI_SITE"`
+	Color   string `help:"Color output: auto|always|never" default:"${color}"`
+	JSON    bool   `help:"Output JSON to stdout (best for scripting)" default:"${json}"`
+	Plain   bool   `help:"Output stable, parseable text to stdout (TSV; no colors)" default:"${plain}"`
+	Force   bool   `help:"Skip confirmations for destructive commands"`
+	NoInput bool   `help:"Never prompt; fail instead (useful for CI)"`
+	Verbose bool   `help:"Enable verbose logging"`
 }
 
 // CLI is the root Kong command structure.
@@ -31,11 +29,10 @@ type CLI struct {
 
 	Version    kong.VersionFlag `help:"Print version and exit"`
 	Auth       AuthCmd          `cmd:"" help:"Auth and credentials"`
-	Devices    DevicesCmd       `cmd:"" help:"Network device operations"`
-	Clients    ClientsCmd       `cmd:"" help:"Client/station operations"`
-	Networks   NetworksCmd      `cmd:"" help:"Network/VLAN operations"`
-	Stats      StatsCmd         `cmd:"" help:"Site statistics"`
-	Topology   TopologyCmd      `cmd:"" help:"Network topology overview"`
+	Hosts      HostsCmd         `cmd:"" help:"Host (console) operations"`
+	Sites      SitesCmd         `cmd:"" help:"Site operations"`
+	Devices    DevicesCmd       `cmd:"" help:"Device operations"`
+	ISPMetrics ISPMetricsCmd    `cmd:"" name:"isp-metrics" help:"ISP performance metrics"`
 	VersionCmd VersionCmd       `cmd:"" name:"version" help:"Print version"`
 }
 
@@ -163,7 +160,7 @@ func newParser(description string) (*kong.Kong, *CLI, error) {
 }
 
 func helpDescription() string {
-	return "UniFi Network CLI - Manage UniFi network devices, clients, and settings"
+	return "UniFi Site Manager CLI - Manage hosts, sites, devices, and ISP metrics via the cloud API"
 }
 
 func newUsageError(err error) error {

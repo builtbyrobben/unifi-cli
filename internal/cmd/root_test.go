@@ -140,11 +140,10 @@ func TestParseCommands(t *testing.T) {
 
 	// Verify CLI struct has expected command groups
 	_ = cli.Auth
+	_ = cli.Hosts
+	_ = cli.Sites
 	_ = cli.Devices
-	_ = cli.Clients
-	_ = cli.Networks
-	_ = cli.Stats
-	_ = cli.Topology
+	_ = cli.ISPMetrics
 	_ = cli.VersionCmd
 }
 
@@ -200,9 +199,9 @@ func TestJSONOutputFormat(t *testing.T) {
 	var buf bytes.Buffer
 
 	data := map[string]any{
-		"id":    "test-123",
-		"mac":   "AA:BB:CC:DD:EE:FF",
-		"state": 1,
+		"id":      "test-123",
+		"host_id": "host-abc",
+		"status":  "online",
 	}
 
 	enc := json.NewEncoder(&buf)
@@ -220,35 +219,5 @@ func TestJSONOutputFormat(t *testing.T) {
 
 	if decoded["id"] != "test-123" {
 		t.Errorf("expected id 'test-123', got %v", decoded["id"])
-	}
-}
-
-func TestHelperFunctions(t *testing.T) {
-	if v := firstNonEmpty("", "", "c"); v != "c" {
-		t.Errorf("firstNonEmpty expected 'c', got %q", v)
-	}
-
-	if v := firstNonEmpty("a", "b"); v != "a" {
-		t.Errorf("firstNonEmpty expected 'a', got %q", v)
-	}
-
-	if v := firstNonEmpty(); v != "" {
-		t.Errorf("firstNonEmpty expected empty, got %q", v)
-	}
-
-	if v := displayValue(""); v != "(not set)" {
-		t.Errorf("displayValue expected '(not set)', got %q", v)
-	}
-
-	if v := displayValue("test"); v != "test" {
-		t.Errorf("displayValue expected 'test', got %q", v)
-	}
-
-	if v := displayBool(true); v != "(set)" {
-		t.Errorf("displayBool expected '(set)', got %q", v)
-	}
-
-	if v := displayBool(false); v != "(not set)" {
-		t.Errorf("displayBool expected '(not set)', got %q", v)
 	}
 }
