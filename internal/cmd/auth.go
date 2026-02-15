@@ -133,7 +133,7 @@ func (cmd *AuthStatusCmd) Run(ctx context.Context) error {
 		}
 		return outfmt.WritePlain(os.Stdout,
 			[]string{"STORAGE", "STATUS", "KEY"},
-			[][]string{{fmt.Sprintf("%s", status["storage_backend"]), statusStr, keyStr}},
+			[][]string{{status["storage_backend"].(string), statusStr, keyStr}},
 		)
 	}
 
