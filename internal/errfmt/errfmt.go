@@ -21,7 +21,7 @@ func Format(err error) string {
 	}
 
 	if errors.Is(err, keyring.ErrKeyNotFound) {
-		return "Secret not found in keyring. Run: <cli> auth set-key --stdin"
+		return "Secret not found in keyring. Run: unifi-cli auth set-key"
 	}
 
 	if errors.Is(err, os.ErrNotExist) {

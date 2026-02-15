@@ -9,34 +9,36 @@ import (
 
 	"github.com/alecthomas/kong"
 
-	"github.com/builtbyrobben/cli-template/internal/errfmt"
-	"github.com/builtbyrobben/cli-template/internal/outfmt"
+	"github.com/builtbyrobben/unifi-cli/internal/errfmt"
+	"github.com/builtbyrobben/unifi-cli/internal/outfmt"
 )
 
-const (
-	colorAuto  = "auto"
-	colorNever = "never"
-)
-
+// RootFlags holds global CLI flags.
 type RootFlags struct {
-	Color          string `help:"Color output: auto|always|never" default:"${color}"`
-	JSON           bool   `help:"Output JSON to stdout (best for scripting)" default:"${json}"`
-	Plain          bool   `help:"Output stable, parseable text to stdout (TSV; no colors)" default:"${plain}"`
-	Force          bool   `help:"Skip confirmations for destructive commands"`
-	NoInput        bool   `help:"Never prompt; fail instead (useful for CI)"`
-	Verbose        bool   `help:"Enable verbose logging"`
+	Color   string `help:"Color output: auto|always|never" default:"${color}"`
+	JSON    bool   `help:"Output JSON to stdout (best for scripting)" default:"${json}"`
+	Plain   bool   `help:"Output stable, parseable text to stdout (TSV; no colors)" default:"${plain}"`
+	Force   bool   `help:"Skip confirmations for destructive commands"`
+	NoInput bool   `help:"Never prompt; fail instead (useful for CI)"`
+	Verbose bool   `help:"Enable verbose logging"`
 }
 
+// CLI is the root Kong command structure.
 type CLI struct {
 	RootFlags `embed:""`
 
 	Version    kong.VersionFlag `help:"Print version and exit"`
 	Auth       AuthCmd          `cmd:"" help:"Auth and credentials"`
+	Hosts      HostsCmd         `cmd:"" help:"Host (console) operations"`
+	Sites      SitesCmd         `cmd:"" help:"Site operations"`
+	Devices    DevicesCmd       `cmd:"" help:"Device operations"`
+	ISPMetrics ISPMetricsCmd    `cmd:"" name:"isp-metrics" help:"ISP performance metrics"`
 	VersionCmd VersionCmd       `cmd:"" name:"version" help:"Print version"`
 }
 
 type exitPanic struct{ code int }
 
+// Execute parses and runs the CLI.
 func Execute(args []string) (err error) {
 	parser, cli, err := newParser(helpDescription())
 	if err != nil {
@@ -50,9 +52,12 @@ func Execute(args []string) (err error) {
 					err = nil
 					return
 				}
+
 				err = &ExitError{Code: ep.code, Err: errors.New("exited")}
+
 				return
 			}
+
 			panic(r)
 		}
 	}()
@@ -61,6 +66,7 @@ func Execute(args []string) (err error) {
 	if err != nil {
 		parsedErr := wrapParseError(err)
 		_, _ = fmt.Fprintln(os.Stderr, errfmt.Format(parsedErr))
+
 		return parsedErr
 	}
 
@@ -68,6 +74,7 @@ func Execute(args []string) (err error) {
 	if cli.Verbose {
 		logLevel = slog.LevelDebug
 	}
+
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: logLevel,
 	})))
@@ -89,6 +96,7 @@ func Execute(args []string) (err error) {
 	}
 
 	_, _ = fmt.Fprintln(os.Stderr, errfmt.Format(err))
+
 	return err
 }
 
@@ -96,10 +104,12 @@ func wrapParseError(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	var parseErr *kong.ParseError
 	if errors.As(err, &parseErr) {
 		return &ExitError{Code: 2, Err: parseErr}
 	}
+
 	return err
 }
 
@@ -107,6 +117,7 @@ func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
+
 	return fallback
 }
 
@@ -114,22 +125,24 @@ func boolString(v bool) string {
 	if v {
 		return "true"
 	}
+
 	return "false"
 }
 
 func newParser(description string) (*kong.Kong, *CLI, error) {
-	envMode := outfmt.FromEnv("PLACEHOLDER_CLI")
+	envMode := outfmt.FromEnv("UNIFI_CLI")
 	vars := kong.Vars{
-		"color":   envOr("PLACEHOLDER_CLI_COLOR", "auto"),
+		"color":   envOr("UNIFI_CLI_COLOR", "auto"),
 		"json":    boolString(envMode.JSON),
 		"plain":   boolString(envMode.Plain),
 		"version": VersionString(),
 	}
 
 	cli := &CLI{}
+
 	parser, err := kong.New(
 		cli,
-		kong.Name("placeholder-cli"),
+		kong.Name("unifi-cli"),
 		kong.Description(description),
 		kong.ConfigureHelp(kong.HelpOptions{
 			Compact: true,
@@ -142,17 +155,18 @@ func newParser(description string) (*kong.Kong, *CLI, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
 	return parser, cli, nil
 }
 
 func helpDescription() string {
-	return "Placeholder CLI - Replace with your service description"
+	return "UniFi Site Manager CLI - Manage hosts, sites, devices, and ISP metrics via the cloud API"
 }
 
-// newUsageError wraps errors in a way main() can map to exit code 2.
 func newUsageError(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	return &ExitError{Code: 2, Err: err}
 }

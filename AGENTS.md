@@ -2,10 +2,11 @@
 
 ## Project Structure
 
-- `cmd/placeholder/`: CLI entrypoint
+- `cmd/unifi/`: CLI entrypoint
 - `internal/`: implementation packages
   - `cmd/`: Kong CLI commands
-  - `api/`: HTTP client with retry/rate limiting
+  - `api/`: HTTP client with API key auth (X-API-Key header)
+  - `unifi/`: UniFi service client with types and API methods
   - `secrets/`: Keyring-backed credential storage
   - `outfmt/`: JSON/plain output formatting
   - `errfmt/`: User-friendly error formatting
@@ -13,14 +14,14 @@
 
 ## Build, Test, and Development Commands
 
-- `make` / `make build`: build `bin/placeholder-cli`
+- `make` / `make build`: build `bin/unifi-cli`
 - `make tools`: install pinned dev tools into `.tools/`
 - `make fmt` / `make lint` / `make test` / `make ci`: format, lint, test, full local gate
 - Hooks: `lefthook install` enables pre-commit checks
 
 ## Coding Style & Naming Conventions
 
-- Formatting: `make fmt` (`goimports` local prefix `github.com/builtbyrobben/cli-template` + `gofumpt`)
+- Formatting: `make fmt` (`goimports` local prefix `github.com/builtbyrobben/unifi-cli` + `gofumpt`)
 - Output: keep stdout parseable (`--json` / `--plain`); send human hints/progress to stderr
 
 ## Testing Guidelines

@@ -11,7 +11,7 @@ import (
 	"github.com/99designs/keyring"
 	"golang.org/x/term"
 
-	"github.com/builtbyrobben/cli-template/internal/config"
+	"github.com/builtbyrobben/unifi-cli/internal/config"
 )
 
 type Store interface {
@@ -26,17 +26,18 @@ type KeyringStore struct {
 }
 
 const (
-	apiKeyKey              = "api_key"
-	keyringPasswordEnv     = "PLACEHOLDER_CLI_KEYRING_PASS"
-	keyringBackendEnv      = "PLACEHOLDER_CLI_KEYRING_BACKEND"
-	keyringOpenTimeout     = 5 * time.Second
+	apiKeyKey          = "api_key"
+	keyringPasswordEnv = "UNIFI_CLI_KEYRING_PASS" //nolint:gosec // env var name, not a credential
+	keyringBackendEnv  = "UNIFI_CLI_KEYRING_BACKEND"
+	keyringOpenTimeout = 5 * time.Second
 )
 
 var (
-	errMissingAPIKey      = errors.New("missing API key")
-	errNoTTY              = errors.New("no TTY available for keyring file backend password prompt")
+	errMissingAPIKey         = errors.New("missing API key")
+	errMissingSecretKey      = errors.New("missing secret key")
+	errNoTTY                 = errors.New("no TTY available for keyring file backend password prompt")
 	errInvalidKeyringBackend = errors.New("invalid keyring backend")
-	errKeyringTimeout     = errors.New("keyring connection timed out")
+	errKeyringTimeout        = errors.New("keyring connection timed out")
 )
 
 type KeyringBackendInfo struct {
@@ -125,7 +126,7 @@ func openKeyring() (keyring.Keyring, error) {
 	}
 
 	cfg := keyring.Config{
-		ServiceName:             config.AppName,
+		ServiceName:              config.AppName,
 		KeychainTrustApplication: false,
 		AllowedBackends:          backends,
 		FileDir:                  keyringDir,
@@ -166,7 +167,7 @@ func openKeyringWithTimeout(cfg keyring.Config, timeout time.Duration) (keyring.
 		return res.ring, nil
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("%w after %v (D-Bus SecretService may be unresponsive); "+
-			"set PLACEHOLDER_CLI_KEYRING_BACKEND=file and PLACEHOLDER_CLI_KEYRING_PASS=<password> to use encrypted file storage instead",
+			"set UNIFI_CLI_KEYRING_BACKEND=file and UNIFI_CLI_KEYRING_PASS=<password> to use encrypted file storage instead",
 			errKeyringTimeout, timeout)
 	}
 }
@@ -219,8 +220,10 @@ func (s *KeyringStore) HasKey() (bool, error) {
 		if errors.Is(err, keyring.ErrKeyNotFound) {
 			return false, nil
 		}
-		return false, err
+
+		return false, fmt.Errorf("check key existence: %w", err)
 	}
+
 	return true, nil
 }
 
@@ -228,7 +231,7 @@ func (s *KeyringStore) HasKey() (bool, error) {
 func GetSecret(key string) ([]byte, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return nil, errors.New("missing secret key")
+		return nil, errMissingSecretKey
 	}
 
 	ring, err := openKeyring()
@@ -248,7 +251,7 @@ func GetSecret(key string) ([]byte, error) {
 func SetSecret(key string, value []byte) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return errors.New("missing secret key")
+		return errMissingSecretKey
 	}
 
 	ring, err := openKeyring()

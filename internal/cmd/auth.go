@@ -7,45 +7,51 @@ import (
 	"os"
 	"strings"
 
-	"github.com/builtbyrobben/cli-template/internal/outfmt"
-	"github.com/builtbyrobben/cli-template/internal/secrets"
 	"golang.org/x/term"
+
+	"github.com/builtbyrobben/unifi-cli/internal/outfmt"
+	"github.com/builtbyrobben/unifi-cli/internal/secrets"
 )
 
 type AuthCmd struct {
-	SetKey  AuthSetKeyCmd  `cmd:"" help:"Set API key (uses --stdin by default)"`
-	Status  AuthStatusCmd  `cmd:"" help:"Show authentication status"`
-	Remove  AuthRemoveCmd  `cmd:"" help:"Remove stored credentials"`
+	SetKey AuthSetKeyCmd `cmd:"" help:"Set API key (uses --stdin by default)"`
+	Status AuthStatusCmd `cmd:"" help:"Show authentication status"`
+	Remove AuthRemoveCmd `cmd:"" help:"Remove stored credentials"`
 }
 
 type AuthSetKeyCmd struct {
-	Stdin bool `help:"Read API key from stdin (default: true)" default:"true"`
-	Key    string `arg:"" optional:"" help:"API key (discouraged; exposes in shell history)"`
+	Stdin bool   `help:"Read API key from stdin (default: true)" default:"true"`
+	Key   string `arg:"" optional:"" help:"API key (discouraged; exposes in shell history)"`
 }
 
 func (cmd *AuthSetKeyCmd) Run(ctx context.Context) error {
 	var apiKey string
 
 	// Priority: argument > stdin
-	if cmd.Key != "" {
+	switch {
+	case cmd.Key != "":
 		// Warn about shell history exposure
 		fmt.Fprintln(os.Stderr, "Warning: passing keys as arguments exposes them in shell history. Use --stdin instead.")
 		apiKey = strings.TrimSpace(cmd.Key)
-	} else if term.IsTerminal(int(os.Stdin.Fd())) {
+	case term.IsTerminal(int(os.Stdin.Fd())):
 		// Interactive prompt
 		fmt.Fprint(os.Stderr, "Enter API key: ")
+
 		byteKey, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Fprintln(os.Stderr) // New line after password input
+
 		if err != nil {
 			return fmt.Errorf("read API key: %w", err)
 		}
+
 		apiKey = strings.TrimSpace(string(byteKey))
-	} else {
+	default:
 		// Read from stdin (piped)
 		byteKey, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("read API key from stdin: %w", err)
 		}
+
 		apiKey = strings.TrimSpace(string(byteKey))
 	}
 
@@ -63,13 +69,13 @@ func (cmd *AuthSetKeyCmd) Run(ctx context.Context) error {
 	}
 
 	if outfmt.IsJSON(ctx) {
-		outfmt.WriteJSON(os.Stdout, map[string]string{
-			"status": "success",
+		return outfmt.WriteJSON(os.Stdout, map[string]string{
+			"status":  "success",
 			"message": "API key stored in keyring",
 		})
-	} else {
-		fmt.Fprintln(os.Stderr, "API key stored in keyring")
 	}
+
+	fmt.Fprintln(os.Stderr, "API key stored in keyring")
 
 	return nil
 }
@@ -88,12 +94,12 @@ func (cmd *AuthStatusCmd) Run(ctx context.Context) error {
 	}
 
 	// Check environment variable override
-	envKey := os.Getenv("PLACEHOLDER_CLI_API_KEY")
+	envKey := os.Getenv("UNIFI_API_KEY")
 	envOverride := envKey != ""
 
 	status := map[string]any{
-		"has_key":        hasKey,
-		"env_override":   envOverride,
+		"has_key":         hasKey,
+		"env_override":    envOverride,
 		"storage_backend": "keyring",
 	}
 
@@ -111,16 +117,19 @@ func (cmd *AuthStatusCmd) Run(ctx context.Context) error {
 
 	// Human-readable output
 	fmt.Fprintf(os.Stderr, "Storage: %s\n", status["storage_backend"])
-	if envOverride {
-		fmt.Fprintln(os.Stderr, "Status: Using PLACEHOLDER_CLI_API_KEY environment variable")
-	} else if hasKey {
+
+	switch {
+	case envOverride:
+		fmt.Fprintln(os.Stderr, "Status: Using UNIFI_API_KEY environment variable")
+	case hasKey:
 		fmt.Fprintln(os.Stderr, "Status: Authenticated")
+
 		if redacted, ok := status["key_redacted"].(string); ok {
 			fmt.Fprintf(os.Stderr, "Key: %s\n", redacted)
 		}
-	} else {
+	default:
 		fmt.Fprintln(os.Stderr, "Status: Not authenticated")
-		fmt.Fprintln(os.Stderr, "Run: placeholder-cli auth set-key --stdin")
+		fmt.Fprintln(os.Stderr, "Run: unifi-cli auth set-key --stdin")
 	}
 
 	return nil
@@ -139,13 +148,13 @@ func (cmd *AuthRemoveCmd) Run(ctx context.Context) error {
 	}
 
 	if outfmt.IsJSON(ctx) {
-		outfmt.WriteJSON(os.Stdout, map[string]string{
-			"status": "success",
+		return outfmt.WriteJSON(os.Stdout, map[string]string{
+			"status":  "success",
 			"message": "API key removed",
 		})
-	} else {
-		fmt.Fprintln(os.Stderr, "API key removed")
 	}
+
+	fmt.Fprintln(os.Stderr, "API key removed")
 
 	return nil
 }
