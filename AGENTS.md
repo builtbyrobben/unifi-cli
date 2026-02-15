@@ -5,7 +5,7 @@
 - `cmd/unifi/`: CLI entrypoint
 - `internal/`: implementation packages
   - `cmd/`: Kong CLI commands
-  - `api/`: HTTP client with cookie session auth
+  - `api/`: HTTP client with API key auth (X-API-Key header)
   - `unifi/`: UniFi service client with types and API methods
   - `secrets/`: Keyring-backed credential storage
   - `outfmt/`: JSON/plain output formatting
