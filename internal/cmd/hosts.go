@@ -31,6 +31,18 @@ func (cmd *HostsListCmd) Run(ctx context.Context) error {
 	if outfmt.IsJSON(ctx) {
 		return outfmt.WriteJSON(os.Stdout, result)
 	}
+	if outfmt.IsPlain(ctx) {
+		headers := []string{"ID", "TYPE", "IP", "NAME", "OWNER", "BLOCKED"}
+		var rows [][]string
+		for _, h := range result.Data {
+			name := ""
+			if h.UserData != nil {
+				name = h.UserData.Name
+			}
+			rows = append(rows, []string{h.ID, h.Type, h.IPAddress, name, fmt.Sprintf("%v", h.Owner), fmt.Sprintf("%v", h.IsBlocked)})
+		}
+		return outfmt.WritePlain(os.Stdout, headers, rows)
+	}
 
 	if len(result.Data) == 0 {
 		fmt.Fprintln(os.Stderr, "No hosts found")
@@ -77,6 +89,17 @@ func (cmd *HostsGetCmd) Run(ctx context.Context) error {
 
 	if outfmt.IsJSON(ctx) {
 		return outfmt.WriteJSON(os.Stdout, result)
+	}
+	if outfmt.IsPlain(ctx) {
+		h := result.Data
+		name := ""
+		if h.UserData != nil {
+			name = h.UserData.Name
+		}
+		return outfmt.WritePlain(os.Stdout,
+			[]string{"ID", "TYPE", "IP", "NAME", "OWNER", "BLOCKED"},
+			[][]string{{h.ID, h.Type, h.IPAddress, name, fmt.Sprintf("%v", h.Owner), fmt.Sprintf("%v", h.IsBlocked)}},
+		)
 	}
 
 	h := result.Data
