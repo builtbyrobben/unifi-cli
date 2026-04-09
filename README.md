@@ -4,13 +4,6 @@ Command-line interface for the UniFi Site Manager cloud API. Manage hosts, sites
 
 ## Installation
 
-### Homebrew (macOS/Linux)
-
-```bash
-brew tap builtbyrobben/tap
-brew install unifi-cli
-```
-
 ### Download Binary
 
 Download the latest release from [GitHub Releases](https://github.com/builtbyrobben/unifi-cli/releases).
