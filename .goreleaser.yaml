@@ -47,14 +47,3 @@ archives:
 
 checksum:
   name_template: checksums.txt
-
-brews:
-  - repository:
-      owner: builtbyrobben
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/builtbyrobben/unifi-cli"
-    description: "UniFi network controller CLI"
-    license: "MIT"
-    test: |
-      system "#{bin}/unifi-cli", "--version"
